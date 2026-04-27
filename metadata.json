@@ -1,0 +1,6 @@
+{
+  "name": "One-Tap SOS Emergency Response System",
+  "description": "A real-time crisis coordination system for hospitality, featuring guest SOS alerts, staff role-based dashboard, and automatic security escalation.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}

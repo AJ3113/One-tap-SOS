@@ -1,0 +1,127 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    // Role Checks
+    function getStaff(uid) { return get(/databases/$(database)/documents/staff/$(uid)).data; }
+    function isStaff() { 
+      return isSignedIn() 
+        && (exists(/databases/$(database)/documents/staff/$(request.auth.uid)) 
+            || (request.auth.token.email == 'aj5662528@gmail.com' && request.auth.token.email_verified == true)); 
+    }
+    function hasRole(role) { 
+      return isStaff() && exists(/databases/$(database)/documents/staff/$(request.auth.uid)) && getStaff(request.auth.uid).role == role; 
+    }
+    function isManager() { 
+      return isStaff() && (
+        (exists(/databases/$(database)/documents/staff/$(request.auth.uid)) && getStaff(request.auth.uid).role == 'Manager') 
+        || (request.auth.token.email == 'aj5662528@gmail.com' && request.auth.token.email_verified == true)
+      ); 
+    }
+    function isSecurity() { return hasRole('Security'); }
+    function isMedical() { return hasRole('Medical'); }
+
+    // --- Validation Helpers ---
+    
+    function isValidIncident(data) {
+      return data.keys().hasAll(['type', 'guestLocation', 'status', 'createdAt', 'updatedAt', 'reporterId'])
+        && data.type in ['Fire', 'Medical', 'Threat', 'Other']
+        && data.status in ['reported', 'accepted', 'on-the-way', 'resolved', 'escalated']
+        && data.guestLocation is string && data.guestLocation.size() <= 500
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && data.reporterId is string && data.reporterId.size() <= 128
+        && (isSignedIn() ? data.reporterId == request.auth.uid : true); // Link to UID if signed in
+    }
+
+    function isValidStaff(data) {
+      return data.keys().hasAll(['name', 'role', 'status', 'email'])
+        && data.name is string && data.name.size() <= 100
+        && data.role in ['Security', 'Medical', 'Housekeeping', 'Manager']
+        && data.status in ['available', 'busy', 'offline']
+        && data.email is string && data.email.size() <= 100;
+    }
+
+    function isValidActivity(data) {
+       return data.keys().hasAll(['incidentId', 'userId', 'userName', 'message', 'timestamp'])
+        && isValidId(data.incidentId)
+        && data.userId is string && data.userId.size() <= 128
+        && data.userName is string && data.userName.size() <= 100
+        && data.message is string && data.message.size() <= 1000
+        && data.timestamp == request.time;
+    }
+
+    // --- Collections ---
+
+    match /incidents/{incidentId} {
+      allow get: if true; // Guests need to read their report status
+      allow list: if isStaff();
+      
+      allow create: if isValidId(incidentId) && isValidIncident(incoming()) 
+        && incoming().status == 'reported';
+
+      allow update: if isValidId(incidentId) && (
+        isManager() || (
+          isStaff() && (
+            // Action: Accept
+            (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'staffId', 'updatedAt'])
+              && incoming().status == 'accepted' && incoming().staffId == request.auth.uid) ||
+            // Action: Status Update (On the way / Resolved)
+            (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'resolvedAt'])
+              && incoming().status in ['on-the-way', 'resolved']
+              && (incoming().status != 'resolved' || incoming().resolvedAt == request.time)) ||
+            // Action: Escalate (Threat specific or 10min timeout)
+            (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'escalatedAt'])
+              && incoming().status == 'escalated'
+              && incoming().escalatedAt == request.time
+              && (existing().type == 'Threat' || request.time >= existing().createdAt + duration(10, 'm'))) ||
+            // Action: Resolve from Escalated
+            (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'resolvedAt'])
+              && existing().status == 'escalated'
+              && incoming().status == 'resolved'
+              && incoming().resolvedAt == request.time)
+          )
+        )
+      );
+    }
+
+    match /staff/{staffId} {
+      allow get: if isSignedIn();
+      allow list: if isStaff();
+      allow create: if isManager() && isValidId(staffId) && isValidStaff(incoming());
+      allow update: if isValidId(staffId) && (
+        isManager() || (
+          request.auth.uid == staffId 
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'name'])
+          && incoming().role == existing().role // Cannot change own role
+        )
+      );
+    }
+
+    match /incidents/{incidentId}/activity/{activityId} {
+      allow read: if isStaff() || (
+        // Guests can see activity for their incident if we give them the ID
+        exists(/databases/$(database)/documents/incidents/$(incidentId))
+        && get(/databases/$(database)/documents/incidents/$(incidentId)).data.reporterId == request.auth.uid
+      );
+      allow create: if isValidId(activityId) && isValidActivity(incoming()) 
+        && (isStaff() || incoming().userId == request.auth.uid);
+    }
+
+    match /system/status {
+      allow read: if true;
+      allow write: if isManager();
+    }
+  }
+}

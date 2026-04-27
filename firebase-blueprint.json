@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "Incident": {
+      "title": "Incident",
+      "description": "An emergency incident reported by a guest or staff member.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["Fire", "Medical", "Threat", "Other"] },
+        "guestLocation": { "type": "string", "description": "Room number or floor description" },
+        "status": { "type": "string", "enum": ["reported", "accepted", "on-the-way", "resolved", "escalated"] },
+        "staffId": { "type": "string", "description": "UID of the staff member assigned" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "resolvedAt": { "type": "string", "format": "date-time" },
+        "escalatedAt": { "type": "string", "format": "date-time" },
+        "floor": { "type": "number" },
+        "reporterId": { "type": "string" },
+        "metadata": { "type": "object" }
+      },
+      "required": ["type", "guestLocation", "status", "createdAt", "updatedAt", "reporterId"]
+    },
+    "Staff": {
+      "title": "Staff",
+      "description": "Information about staff members and their roles.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["Security", "Medical", "Housekeeping", "Manager"] },
+        "status": { "type": "string", "enum": ["available", "busy", "offline"] },
+        "email": { "type": "string" },
+        "emailVerified": { "type": "boolean" }
+      },
+      "required": ["name", "role", "status", "email"]
+    },
+    "ActivityRecord": {
+      "title": "ActivityRecord",
+      "description": "A log entry for actions taken on an incident.",
+      "type": "object",
+      "properties": {
+        "incidentId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["incidentId", "userId", "message", "timestamp"]
+    },
+    "GlobalAlert": {
+      "title": "GlobalAlert",
+      "description": "A system-wide emergency broadcast.",
+      "type": "object",
+      "properties": {
+        "isActive": { "type": "boolean" },
+        "sirenActive": { "type": "boolean" },
+        "type": { "type": "string", "enum": ["Fire", "Threat", "Clear"] },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["isActive", "sirenActive", "type", "message", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/incidents/{incidentId}": {
+      "schema": "Incident",
+      "description": "Emergency incidents."
+    },
+    "/staff/{staffId}": {
+      "schema": "Staff",
+      "description": "Staff member profiles."
+    },
+    "/incidents/{incidentId}/activity/{activityId}": {
+      "schema": "ActivityRecord",
+      "description": "Activity logs for specific incidents."
+    },
+    "/system/status": {
+      "schema": "GlobalAlert",
+      "description": "Global system emergency status."
+    }
+  }
+}
